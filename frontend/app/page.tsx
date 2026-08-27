@@ -1,6 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type Stock = {
   symbol: string;
@@ -11,9 +20,19 @@ type Stock = {
   signal: string;
 };
 
+type HistoryPoint = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
 export default function Home() {
   const [symbol, setSymbol] = useState("AAPL");
   const [stock, setStock] = useState<Stock | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,19 +47,29 @@ export default function Home() {
     setLoading(true);
     setError("");
     setStock(null);
+    setHistory([]);
 
     try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/stock/${encodeURIComponent(cleanSymbol)}`
-      );
+      const [stockResponse, historyResponse] = await Promise.all([
+        fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
+        fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
+      ]);
 
-      const data = await response.json();
+      const stockData = await stockResponse.json();
+      const historyData = await historyResponse.json();
 
-      if (!response.ok) {
-        throw new Error(data.detail || "Stock could not be found.");
+      if (!stockResponse.ok) {
+        throw new Error(stockData.detail || "Live stock data was not found.");
       }
 
-      setStock(data);
+      if (!historyResponse.ok) {
+        throw new Error(
+          historyData.detail || "Historical stock data was not found."
+        );
+      }
+
+      setStock(stockData);
+      setHistory(historyData.history);
     } catch (error) {
       setError(
         error instanceof Error
@@ -65,16 +94,14 @@ export default function Home() {
         background: "#0f172a",
         minHeight: "100vh",
         color: "white",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
+        padding: "50px 20px",
         fontFamily: "Arial",
       }}
     >
       <div
         style={{
-          width: "700px",
-          maxWidth: "85%",
+          maxWidth: "900px",
+          margin: "0 auto",
           background: "#1e293b",
           padding: "40px",
           borderRadius: "20px",
@@ -96,7 +123,7 @@ export default function Home() {
               searchStock();
             }
           }}
-          placeholder="Enter stock symbol, for example AAPL"
+          placeholder="Enter a stock symbol, for example AAPL"
           style={{
             boxSizing: "border-box",
             width: "100%",
@@ -127,8 +154,8 @@ export default function Home() {
           <div
             style={{
               marginTop: "25px",
-              background: "#7f1d1d",
               padding: "15px",
+              background: "#7f1d1d",
               borderRadius: "10px",
             }}
           >
@@ -140,8 +167,8 @@ export default function Home() {
           <div
             style={{
               marginTop: "30px",
-              background: "#334155",
               padding: "20px",
+              background: "#334155",
               borderRadius: "15px",
             }}
           >
@@ -150,16 +177,75 @@ export default function Home() {
             <p>Change: {stock.change}</p>
             <p>Price movement: ${stock.price_change.toFixed(2)}</p>
             <p>Previous close: ${stock.previous_close.toFixed(2)}</p>
+            <h2 style={{ color: signalColor }}>{stock.signal}</h2>
+          </div>
+        )}
 
-            <h2 style={{ color: signalColor }}>
-              {stock.signal}
+        {history.length > 0 && (
+          <div
+            style={{
+              marginTop: "30px",
+              padding: "20px",
+              background: "#334155",
+              borderRadius: "15px",
+            }}
+          >
+            <h2 style={{ textAlign: "center" }}>
+              30-Day Closing Price
             </h2>
+
+            <div style={{ width: "100%", height: "350px" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={history}
+                  margin={{ top: 20, right: 20, left: 10, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#64748b" />
+
+                  <XAxis
+                    dataKey="date"
+                    stroke="#cbd5e1"
+                    tickFormatter={(date) => date.slice(5)}
+                  />
+
+                  <YAxis
+                    stroke="#cbd5e1"
+                    domain={["auto", "auto"]}
+                    tickFormatter={(value) => `$${value}`}
+                  />
+
+                  <Tooltip
+                    contentStyle={{
+                      background: "#0f172a",
+                      border: "1px solid #38bdf8",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value) => [`$${Number(value).toFixed(2)}`, "Close"]}
+                  />
+
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    stroke="#38bdf8"
+                    strokeWidth={3}
+                    dot={false}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         )}
 
         {!stock && !loading && !error && (
-          <p style={{ marginTop: "25px", textAlign: "center", color: "#94a3b8" }}>
-            Search for a stock to see its latest market data.
+          <p
+            style={{
+              marginTop: "25px",
+              textAlign: "center",
+              color: "#94a3b8",
+            }}
+          >
+            Search for a stock to view live data and its 30-day chart.
           </p>
         )}
       </div>
