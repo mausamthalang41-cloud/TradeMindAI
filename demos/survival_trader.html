@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Survival Trader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0B1310;
+    --panel: #101A16;
+    --panel-2: #0D1613;
+    --line: #1E2E27;
+    --phosphor: #6EE7A8;
+    --phosphor-dim: #3E7A5C;
+    --amber: #E8A857;
+    --danger: #E85D5D;
+    --text: #E9F2EC;
+    --muted: #7C9186;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    padding:20px;
+  }
+  .wrap{max-width:880px;margin:0 auto;}
+
+  /* status bar */
+  .statusbar{
+    display:flex;align-items:center;gap:18px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 20px;
+    margin-bottom:14px;
+    flex-wrap:wrap;
+  }
+  .pulse-dot{width:11px;height:11px;border-radius:50%;background:var(--phosphor);flex-shrink:0;}
+  .pulse-dot.alive{animation:beat 1.1s ease-in-out infinite;}
+  .pulse-dot.dead{background:var(--danger);animation:none;}
+  @keyframes beat{
+    0%,100%{transform:scale(1);opacity:1;}
+    50%{transform:scale(1.35);opacity:.65;}
+  }
+  .status-label{font:600 13px 'Space Grotesk',sans-serif;letter-spacing:.02em;}
+  .status-label.alive{color:var(--phosphor);}
+  .status-label.dead{color:var(--danger);}
+  .vitals{display:flex;gap:26px;margin-left:auto;flex-wrap:wrap;}
+  .vital{text-align:right;}
+  .vital .k{font-size:11px;color:var(--muted);margin-bottom:2px;}
+  .vital .v{font:600 18px 'IBM Plex Mono',monospace;}
+  .v.up{color:var(--phosphor);}
+  .v.down{color:var(--danger);}
+
+  /* chart */
+  .chartpanel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+  canvas{width:100%;display:block;border-radius:6px;background:var(--panel-2);}
+  .legend{display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .swatch{width:10px;height:3px;display:inline-block;border-radius:2px;}
+
+  /* controls */
+  .controls{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px 20px;
+    margin-bottom:14px;
+    display:flex;
+    gap:22px;
+    align-items:flex-end;
+    flex-wrap:wrap;
+  }
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:11px;color:var(--muted);}
+  .assetbtns{display:flex;gap:6px;}
+  .assetbtns button{
+    background:var(--panel-2);border:1px solid var(--line);color:var(--muted);
+    padding:7px 12px;border-radius:6px;font:500 13px 'Space Grotesk',sans-serif;cursor:pointer;
+  }
+  .assetbtns button.active{border-color:var(--phosphor-dim);color:var(--phosphor);background:#0F1F17;}
+  input[type=number]{
+    background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    padding:7px 10px;border-radius:6px;width:110px;font:500 13px 'IBM Plex Mono',monospace;
+  }
+  input[type=range]{accent-color:var(--phosphor);width:120px;}
+  .actions{display:flex;gap:8px;margin-left:auto;}
+  .btn{
+    border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+    padding:9px 18px;border-radius:6px;font:600 13px 'Space Grotesk',sans-serif;cursor:pointer;
+  }
+  .btn.primary{background:var(--phosphor);color:#06120C;border-color:var(--phosphor);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  /* log */
+  .logpanel{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 18px;height:170px;overflow-y:auto;
+  }
+  .logpanel .hdr{font-size:11px;color:var(--muted);margin-bottom:8px;letter-spacing:.03em;}
+  .logrow{font:400 12.5px 'IBM Plex Mono',monospace;color:var(--muted);padding:3px 0;border-bottom:1px dashed var(--line);}
+  .logrow .t{color:#4C6157;margin-right:8px;}
+  .logrow.buy{color:var(--amber);}
+  .logrow.sell-up{color:var(--phosphor);}
+  .logrow.sell-down{color:var(--danger);}
+  .logrow.dead{color:var(--danger);font-weight:600;}
+
+  .foot{margin-top:14px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.6;}
+  .best{margin-top:8px;font-size:12px;color:var(--muted);text-align:center;}
+  .best b{color:var(--phosphor);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="statusbar">
+    <div class="pulse-dot alive" id="dot"></div>
+    <div class="status-label alive" id="statusLabel">ALIVE</div>
+    <div class="vitals">
+      <div class="vital"><div class="k">BALANCE</div><div class="v" id="vBalance">$10,000.00</div></div>
+      <div class="vital"><div class="k">P&amp;L</div><div class="v" id="vPnl">+0.0%</div></div>
+      <div class="vital"><div class="k">POSITION</div><div class="v" id="vPosition">flat</div></div>
+      <div class="vital"><div class="k">TRADES</div><div class="v" id="vTrades">0</div></div>
+    </div>
+  </div>
+
+  <div class="chartpanel">
+    <canvas id="chart" height="300"></canvas>
+    <div class="legend">
+      <span><i class="swatch" style="background:#5B7A6E"></i> price</span>
+      <span><i class="swatch" style="background:var(--amber)"></i> EMA9</span>
+      <span><i class="swatch" style="background:#7C9AE0"></i> EMA21</span>
+      <span><i class="swatch" style="background:var(--phosphor)"></i> equity</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="field">
+      <label>ASSET</label>
+      <div class="assetbtns" id="assetBtns">
+        <button data-id="bitcoin" data-sym="BTC" class="active">BTC</button>
+        <button data-id="ethereum" data-sym="ETH">ETH</button>
+        <button data-id="solana" data-sym="SOL">SOL</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>STARTING CAPITAL ($)</label>
+      <input type="number" id="capitalInput" value="10000" min="100" step="100">
+    </div>
+    <div class="field">
+      <label>SPEED</label>
+      <input type="range" id="speedInput" min="1" max="10" value="5">
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="startBtn">Start</button>
+      <button class="btn" id="pauseBtn" disabled>Pause</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <div class="logpanel" id="log">
+    <div class="hdr">TRADE LOG</div>
+  </div>
+
+  <div class="best" id="bestScore"></div>
+  <div class="foot">
+    Simulated trading only — real market history, virtual money. No real funds are involved and this is not financial advice.<br>
+    Strategy: EMA(9)/EMA(21) trend crossover, 30% position sizing, 6% stop-loss, 0.1% simulated fee per trade.
+  </div>
+</div>
+
+<script>
+const els = {
+  dot: document.getElementById('dot'),
+  statusLabel: document.getElementById('statusLabel'),
+  vBalance: document.getElementById('vBalance'),
+  vPnl: document.getElementById('vPnl'),
+  vPosition: document.getElementById('vPosition'),
+  vTrades: document.getElementById('vTrades'),
+  canvas: document.getElementById('chart'),
+  assetBtns: document.getElementById('assetBtns'),
+  capitalInput: document.getElementById('capitalInput'),
+  speedInput: document.getElementById('speedInput'),
+  startBtn: document.getElementById('startBtn'),
+  pauseBtn: document.getElementById('pauseBtn'),
+  resetBtn: document.getElementById('resetBtn'),
+  log: document.getElementById('log'),
+  bestScore: document.getElementById('bestScore'),
+};
+
+let state = null;
+let timer = null;
+let currentAsset = { id: 'bitcoin', sym: 'BTC' };
+
+function fmtMoney(n){
+  return '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function ema(values, period){
+  const k = 2/(period+1);
+  const out = new Array(values.length).fill(null);
+  let prev = values[0];
+  out[0] = prev;
+  for(let i=1;i<values.length;i++){
+    prev = values[i]*k + prev*(1-k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+async function loadData(assetId){
+  const url = `https://api.coingecko.com/api/v3/coins/${assetId}/market_chart?vs_currency=usd&days=30`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('data fetch failed');
+  const json = await res.json();
+  const prices = json.prices.map(p => p[1]);
+  return prices;
+}
+
+function initState(prices, capital){
+  return {
+    prices,
+    ema9: ema(prices, 9),
+    ema21: ema(prices, 21),
+    i: 21, // start once both EMAs are meaningful
+    cash: capital,
+    startingCapital: capital,
+    qty: 0,
+    entryPrice: 0,
+    stopLoss: 0,
+    equityHistory: [],
+    trades: 0,
+    alive: true,
+    playedPrices: [],
+  };
+}
+
+function log(msg, cls){
+  const row = document.createElement('div');
+  row.className = 'logrow' + (cls ? ' '+cls : '');
+  const t = document.createElement('span');
+  t.className = 't';
+  t.textContent = `#${state ? state.i : 0}`;
+  row.appendChild(t);
+  row.appendChild(document.createTextNode(msg));
+  els.log.appendChild(row);
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+function portfolioValue(price){
+  return state.cash + state.qty * price;
+}
+
+function step(){
+  if(!state || !state.alive) return;
+  if(state.i >= state.prices.length){
+    pause();
+    return;
+  }
+  const price = state.prices[state.i];
+  const e9 = state.ema9[state.i];
+  const e21 = state.ema21[state.i];
+  const e9prev = state.ema9[state.i-1];
+  const e21prev = state.ema21[state.i-1];
+
+  const goldenCross = e9prev <= e21prev && e9 > e21;
+  const deathCross = e9prev >= e21prev && e9 < e21;
+
+  if(state.qty > 0){
+    if(price <= state.stopLoss){
+      sell(price, 'stop-loss hit');
+    } else if(deathCross){
+      sell(price, 'trend reversed');
+    }
+  } else {
+    if(goldenCross && state.cash > 1){
+      buy(price);
+    }
+  }
+
+  const value = portfolioValue(price);
+  state.equityHistory.push(value);
+  state.playedPrices.push(price);
+
+  updateVitals(price, value);
+  draw();
+
+  if(value <= 1){
+    die();
+    return;
+  }
+
+  state.i++;
+}
+
+function buy(price){
+  const allocation = state.cash * 0.30;
+  const fee = allocation * 0.001;
+  const qty = (allocation - fee) / price;
+  state.qty = qty;
+  state.entryPrice = price;
+  state.stopLoss = price * 0.94;
+  state.cash -= allocation;
+  state.trades++;
+  log(`BUY  ${qty.toFixed(5)} ${currentAsset.sym} @ ${fmtMoney(price)}`, 'buy');
+}
+
+function sell(price, reason){
+  const proceeds = state.qty * price;
+  const fee = proceeds * 0.001;
+  const pnlPct = ((price - state.entryPrice) / state.entryPrice) * 100;
+  state.cash += (proceeds - fee);
+  const cls = pnlPct >= 0 ? 'sell-up' : 'sell-down';
+  log(`SELL ${state.qty.toFixed(5)} ${currentAsset.sym} @ ${fmtMoney(price)}  ${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%  (${reason})`, cls);
+  state.qty = 0;
+  state.entryPrice = 0;
+  state.stopLoss = 0;
+  state.trades++;
+}
+
+function updateVitals(price, value){
+  const pnlPct = ((value - state.startingCapital) / state.startingCapital) * 100;
+  els.vBalance.textContent = fmtMoney(value);
+  els.vPnl.textContent = (pnlPct>=0?'+':'') + pnlPct.toFixed(1) + '%';
+  els.vPnl.className = 'v ' + (pnlPct>=0 ? 'up':'down');
+  els.vPosition.textContent = state.qty > 0
+    ? `${state.qty.toFixed(5)} ${currentAsset.sym}`
+    : 'flat';
+  els.vTrades.textContent = state.trades;
+}
+
+function die(){
+  state.alive = false;
+  pause();
+  els.dot.classList.remove('alive');
+  els.dot.classList.add('dead');
+  els.statusLabel.textContent = 'FLATLINED';
+  els.statusLabel.className = 'status-label dead';
+  els.vBalance.textContent = '$0.00';
+  log(`Balance hit zero. Simulation over.`, 'dead');
+  saveBestScore(0, true);
+}
+
+function saveBestScore(finalValue, isDead){
+  try{
+    const key = `survival:best:${currentAsset.id}`;
+    let best = { peak: 0, survived: 0 };
+    try{
+      const raw = localStorage.getItem(key);
+      if(raw) best = JSON.parse(raw);
+    }catch(e){ /* no existing record */ }
+    const peakThisRun = Math.max(...state.equityHistory, finalValue || 0);
+    best.peak = Math.max(best.peak, peakThisRun);
+    best.survived = (best.survived || 0) + (isDead ? 0 : 1);
+    localStorage.setItem(key, JSON.stringify(best));
+    renderBest(best);
+  }catch(e){
+    console.error('storage error', e);
+  }
+}
+
+function renderBestOnLoad(){
+  try{
+    const key = `survival:best:${currentAsset.id}`;
+    const raw = localStorage.getItem(key);
+    if(raw) renderBest(JSON.parse(raw));
+    else els.bestScore.textContent = '';
+  }catch(e){
+    els.bestScore.textContent = '';
+  }
+}
+
+function renderBest(best){
+  els.bestScore.innerHTML = `Best peak balance on ${currentAsset.sym}: <b>${fmtMoney(best.peak||0)}</b>`;
+}
+
+function draw(){
+  const canvas = els.canvas;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = 300;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+
+  const n = state.playedPrices.length;
+  if(n < 2) return;
+
+  const priceSlice = state.prices.slice(21, state.i+1);
+  const e9Slice = state.ema9.slice(21, state.i+1);
+  const e21Slice = state.ema21.slice(21, state.i+1);
+  const eqSlice = state.equityHistory;
+
+  const priceMin = Math.min(...priceSlice), priceMax = Math.max(...priceSlice);
+  const eqMin = 0, eqMax = Math.max(state.startingCapital*1.5, ...eqSlice);
+
+  const padL = 8, padR = 8, padTop = 10, padBot = 10;
+  const plotW = w - padL - padR;
+  const priceH = (h - padTop - padBot) * 0.55;
+  const eqH = (h - padTop - padBot) * 0.38;
+  const gap = (h - padTop - padBot) - priceH - eqH;
+
+  function xAt(idx){ return padL + (idx/(n-1))*plotW; }
+  function yPrice(v){ return padTop + priceH - ((v-priceMin)/(priceMax-priceMin || 1))*priceH; }
+  function yEq(v){ return padTop + priceH + gap + eqH - ((v-eqMin)/(eqMax-eqMin || 1))*eqH; }
+
+  function drawLine(data, yfn, color, width){
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    data.forEach((v,idx)=>{
+      const x = xAt(idx), y = yfn(v);
+      if(idx===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+
+  drawLine(priceSlice, yPrice, '#5B7A6E', 1.4);
+  drawLine(e21Slice, yPrice, '#7C9AE0', 1.2);
+  drawLine(e9Slice, yPrice, '#E8A857', 1.2);
+
+  // equity line, color reacts to alive/dead
+  const eqColor = state.alive ? '#6EE7A8' : '#E85D5D';
+  drawLine(eqSlice, yEq, eqColor, 2);
+
+  // baseline for equity (starting capital)
+  ctx.beginPath();
+  ctx.strokeStyle = '#22332B';
+  ctx.setLineDash([3,3]);
+  const baseY = yEq(state.startingCapital);
+  ctx.moveTo(padL, baseY); ctx.lineTo(w-padR, baseY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function pause(){
+  clearInterval(timer);
+  timer = null;
+  els.pauseBtn.disabled = true;
+  els.startBtn.disabled = false;
+  els.startBtn.textContent = 'Resume';
+}
+
+function play(){
+  if(!state || !state.alive) return;
+  els.pauseBtn.disabled = false;
+  els.startBtn.disabled = true;
+  const speed = 11 - parseInt(els.speedInput.value,10); // 1..10 -> higher = faster
+  clearInterval(timer);
+  timer = setInterval(step, speed*35);
+}
+
+async function resetAndLoad(){
+  clearInterval(timer);
+  timer = null;
+  els.log.innerHTML = '<div class="hdr">TRADE LOG</div>';
+  els.startBtn.disabled = true;
+  els.startBtn.textContent = 'Loading…';
+  els.pauseBtn.disabled = true;
+  els.dot.classList.remove('dead'); els.dot.classList.add('alive');
+  els.statusLabel.textContent = 'ALIVE';
+  els.statusLabel.className = 'status-label alive';
+
+  const capital = Math.max(100, parseFloat(els.capitalInput.value) || 10000);
+
+  try{
+    const prices = await loadData(currentAsset.id);
+    state = initState(prices, capital);
+    updateVitals(prices[state.i], capital);
+    draw();
+    renderBestOnLoad();
+    els.startBtn.disabled = false;
+    els.startBtn.textContent = 'Start';
+  }catch(e){
+    log('Could not load live market data. Check connection and try Reset again.', 'dead');
+    els.startBtn.textContent = 'Start';
+    els.startBtn.disabled = false;
+  }
+}
+
+els.assetBtns.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  [...els.assetBtns.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentAsset = { id: btn.dataset.id, sym: btn.dataset.sym };
+  resetAndLoad();
+});
+
+els.startBtn.addEventListener('click', play);
+els.pauseBtn.addEventListener('click', pause);
+els.resetBtn.addEventListener('click', resetAndLoad);
+
+resetAndLoad();
+</script>
+</body>
+</html>
