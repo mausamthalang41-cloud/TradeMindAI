@@ -32,6 +32,19 @@ type WatchlistQuote = {
   error?: string;
 };
 
+type BacktestRow = {
+  signal: string;
+  occurrences: number;
+  avg_next_day_return: number;
+  win_rate: number | null;
+};
+
+type Backtest = {
+  days_tested: number;
+  summary: BacktestRow[];
+  buy_and_hold_return: number;
+};
+
 type HistoryPoint = {
   date: string;
   open: number;
@@ -47,6 +60,7 @@ export default function Home() {
   const [symbol, setSymbol] = useState("AAPL");
   const [stock, setStock] = useState<Stock | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
+  const [backtest, setBacktest] = useState<Backtest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [watchlistQuotes, setWatchlistQuotes] = useState<WatchlistQuote[]>([]);
@@ -89,12 +103,15 @@ export default function Home() {
     setError("");
     setStock(null);
     setHistory([]);
+    setBacktest(null);
 
     try {
-      const [stockResponse, historyResponse] = await Promise.all([
-        fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
-        fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
-      ]);
+      const [stockResponse, historyResponse, backtestResponse] =
+        await Promise.all([
+          fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
+          fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
+          fetch(`http://127.0.0.1:8000/backtest/${cleanSymbol}`),
+        ]);
 
       const stockData = await stockResponse.json();
       const historyData = await historyResponse.json();
@@ -111,6 +128,10 @@ export default function Home() {
 
       setStock(stockData);
       setHistory(historyData.history);
+
+      if (backtestResponse.ok) {
+        setBacktest(await backtestResponse.json());
+      }
     } catch (error) {
       setError(
         error instanceof Error
@@ -429,6 +450,82 @@ export default function Home() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        )}
+
+        {backtest && (
+          <div
+            style={{
+              marginTop: "30px",
+              padding: "20px",
+              background: "#334155",
+              borderRadius: "15px",
+            }}
+          >
+            <h2 style={{ textAlign: "center" }}>
+              Signal Backtest ({backtest.days_tested} days)
+            </h2>
+            <p
+              style={{
+                textAlign: "center",
+                color: "#94a3b8",
+                fontSize: "14px",
+                marginTop: "5px",
+              }}
+            >
+              What today&apos;s signal logic would have called on each past
+              day, and what the stock did the next day. Buy &amp; hold over
+              the same period: {backtest.buy_and_hold_return >= 0 ? "+" : ""}
+              {backtest.buy_and_hold_return}%
+            </p>
+
+            <table
+              style={{
+                width: "100%",
+                marginTop: "15px",
+                borderCollapse: "collapse",
+              }}
+            >
+              <thead>
+                <tr style={{ borderBottom: "1px solid #475569" }}>
+                  <th style={{ textAlign: "left", padding: "8px" }}>Signal</th>
+                  <th style={{ textAlign: "right", padding: "8px" }}>
+                    Occurrences
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px" }}>
+                    Avg Next-Day Return
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px" }}>
+                    Win Rate
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {backtest.summary.map((row) => (
+                  <tr key={row.signal} style={{ borderBottom: "1px solid #475569" }}>
+                    <td
+                      style={{
+                        padding: "8px",
+                        color: signalColor(row.signal),
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {row.signal}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px" }}>
+                      {row.occurrences}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px" }}>
+                      {row.avg_next_day_return >= 0 ? "+" : ""}
+                      {row.avg_next_day_return}%
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px" }}>
+                      {row.win_rate === null ? "—" : `${row.win_rate}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 

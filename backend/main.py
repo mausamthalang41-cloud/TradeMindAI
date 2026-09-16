@@ -299,6 +299,78 @@ def determine_signal(percentage_change, sma5, sma20, rsi):
     return signal, " · ".join(reasons)
 
 
+@app.get("/backtest/{symbol}")
+async def backtest_signal(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    series = await fetch_daily_series(clean_symbol)
+    closes = [point["close"] for point in series]
+
+    if len(closes) < 3:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Not enough historical data to backtest {clean_symbol}.",
+        )
+
+    trades = []
+
+    for index in range(1, len(closes) - 1):
+        window = closes[: index + 1]
+        day_change = (closes[index] - closes[index - 1]) / closes[index - 1] * 100
+
+        sma5 = round(sum(window[-5:]) / 5, 2) if len(window) >= 5 else None
+        sma20 = round(sum(window[-20:]) / 20, 2) if len(window) >= 20 else None
+        rsi = calculate_rsi(window)
+
+        signal, _ = determine_signal(day_change, sma5, sma20, rsi)
+        forward_return = (closes[index + 1] - closes[index]) / closes[index] * 100
+
+        trades.append({"date": series[index]["date"], "signal": signal, "forward_return": forward_return})
+
+    summary = []
+
+    for signal_type in ["BUY", "SELL", "HOLD"]:
+        matching = [trade for trade in trades if trade["signal"] == signal_type]
+
+        if not matching:
+            continue
+
+        avg_forward_return = round(
+            sum(trade["forward_return"] for trade in matching) / len(matching), 2
+        )
+
+        win_rate = None
+        if signal_type in ("BUY", "SELL"):
+            wins = sum(
+                1
+                for trade in matching
+                if (signal_type == "BUY" and trade["forward_return"] > 0)
+                or (signal_type == "SELL" and trade["forward_return"] < 0)
+            )
+            win_rate = round(wins / len(matching) * 100, 1)
+
+        summary.append(
+            {
+                "signal": signal_type,
+                "occurrences": len(matching),
+                "avg_next_day_return": avg_forward_return,
+                "win_rate": win_rate,
+            }
+        )
+
+    buy_and_hold_return = round((closes[-1] - closes[0]) / closes[0] * 100, 2)
+
+    return {
+        "symbol": clean_symbol,
+        "days_tested": len(trades),
+        "summary": summary,
+        "buy_and_hold_return": buy_and_hold_return,
+    }
+
+
 @app.get("/history/{symbol}")
 async def stock_history(symbol: str):
     clean_symbol = symbol.strip().upper()
