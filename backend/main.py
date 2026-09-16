@@ -99,6 +99,39 @@ async def get_watchlist_quotes():
     return {"quotes": quotes}
 
 
+@app.get("/symbols/search")
+async def search_symbols(q: str = ""):
+    clean_query = q.strip()
+
+    if not clean_query:
+        return {"results": []}
+
+    if not FINNHUB_API_KEY:
+        raise HTTPException(status_code=500, detail="Finnhub API key is missing.")
+
+    url = "https://finnhub.io/api/v1/search"
+    parameters = {"q": clean_query, "token": FINNHUB_API_KEY}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params=parameters)
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not contact the symbol-search service.",
+        )
+
+    results = [
+        {"symbol": item["symbol"], "description": item.get("description", "")}
+        for item in data.get("result", [])
+        if item.get("type") == "Common Stock"
+    ][:8]
+
+    return {"results": results}
+
+
 @app.get("/stock/{symbol}")
 async def stock(symbol: str):
     clean_symbol = symbol.strip().upper()

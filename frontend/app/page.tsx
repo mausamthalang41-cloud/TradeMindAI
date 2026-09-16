@@ -47,6 +47,11 @@ type Backtest = {
   buy_and_hold_return: number;
 };
 
+type SymbolSuggestion = {
+  symbol: string;
+  description: string;
+};
+
 type HistoryPoint = {
   date: string;
   open: number;
@@ -67,10 +72,36 @@ export default function Home() {
   const [error, setError] = useState("");
   const [watchlistQuotes, setWatchlistQuotes] = useState<WatchlistQuote[]>([]);
   const watchlistSymbols = watchlistQuotes.map((quote) => quote.symbol);
+  const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     loadWatchlist();
   }, []);
+
+  useEffect(() => {
+    const query = symbol.trim();
+
+    if (!query || query.toUpperCase() === stock?.symbol) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:8000/symbols/search?q=${encodeURIComponent(query)}`
+        );
+        const data = await response.json();
+        setSuggestions(data.results ?? []);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
 
   async function loadWatchlist() {
     try {
@@ -101,6 +132,8 @@ export default function Home() {
     }
 
     setSymbol(cleanSymbol);
+    setShowSuggestions(false);
+    setSuggestions([]);
     setLoading(true);
     setError("");
     setStock(null);
@@ -178,23 +211,68 @@ export default function Home() {
           Live Stock Market Analysis
         </p>
 
-        <input
-          value={symbol}
-          onChange={(event) => setSymbol(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              searchStock();
-            }
-          }}
-          placeholder="Enter a stock symbol, for example AAPL"
-          style={{
-            boxSizing: "border-box",
-            width: "100%",
-            padding: "15px",
-            marginTop: "20px",
-            fontSize: "18px",
-          }}
-        />
+        <div style={{ position: "relative" }}>
+          <input
+            value={symbol}
+            onChange={(event) => {
+              setSymbol(event.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setShowSuggestions(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                searchStock();
+              }
+              if (event.key === "Escape") {
+                setShowSuggestions(false);
+              }
+            }}
+            placeholder="Enter a stock symbol, for example AAPL"
+            style={{
+              boxSizing: "border-box",
+              width: "100%",
+              padding: "15px",
+              marginTop: "20px",
+              fontSize: "18px",
+            }}
+          />
+
+          {showSuggestions && suggestions.length > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                right: 0,
+                marginTop: "4px",
+                background: "#0f172a",
+                border: "1px solid #38bdf8",
+                borderRadius: "8px",
+                maxHeight: "260px",
+                overflowY: "auto",
+                zIndex: 10,
+              }}
+            >
+              {suggestions.map((suggestion) => (
+                <div
+                  key={suggestion.symbol}
+                  onMouseDown={() => searchStock(suggestion.symbol)}
+                  style={{
+                    padding: "10px 15px",
+                    cursor: "pointer",
+                    borderBottom: "1px solid #334155",
+                  }}
+                >
+                  <strong>{suggestion.symbol}</strong>{" "}
+                  <span style={{ color: "#94a3b8", fontSize: "13px" }}>
+                    {suggestion.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button
           onClick={() => searchStock()}
