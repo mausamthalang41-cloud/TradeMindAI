@@ -157,6 +157,25 @@ async def stock_history(symbol: str):
 
     history.reverse()
 
+    for index, point in enumerate(history):
+        if index >= 4:
+            last_5_closes = [
+                history[position]["close"]
+                for position in range(index - 4, index + 1)
+            ]
+            point["sma5"] = round(sum(last_5_closes) / 5, 2)
+        else:
+            point["sma5"] = None
+
+        if index >= 19:
+            last_20_closes = [
+                history[position]["close"]
+                for position in range(index - 19, index + 1)
+            ]
+            point["sma20"] = round(sum(last_20_closes) / 20, 2)
+        else:
+            point["sma20"] = None
+
     return {
         "symbol": clean_symbol,
         "history": history,

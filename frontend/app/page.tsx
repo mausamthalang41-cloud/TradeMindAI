@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -27,6 +28,8 @@ type HistoryPoint = {
   low: number;
   close: number;
   volume: number;
+  sma5: number | null;
+  sma20: number | null;
 };
 
 export default function Home() {
@@ -191,7 +194,7 @@ export default function Home() {
             }}
           >
             <h2 style={{ textAlign: "center" }}>
-              30-Day Closing Price
+              30-Day Price &amp; Moving Averages
             </h2>
 
             <div style={{ width: "100%", height: "350px" }}>
@@ -220,16 +223,42 @@ export default function Home() {
                       border: "1px solid #38bdf8",
                       borderRadius: "8px",
                     }}
-                    formatter={(value) => [`$${Number(value).toFixed(2)}`, "Close"]}
+                    formatter={(value, name) => [
+                      value == null ? "-" : `$${Number(value).toFixed(2)}`,
+                      name,
+                    ]}
                   />
+
+                  <Legend />
 
                   <Line
                     type="monotone"
                     dataKey="close"
+                    name="Close"
                     stroke="#38bdf8"
                     strokeWidth={3}
                     dot={false}
                     activeDot={{ r: 6 }}
+                  />
+
+                  <Line
+                    type="monotone"
+                    dataKey="sma5"
+                    name="SMA 5"
+                    stroke="#facc15"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                  />
+
+                  <Line
+                    type="monotone"
+                    dataKey="sma20"
+                    name="SMA 20"
+                    stroke="#a78bfa"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
                   />
                 </LineChart>
               </ResponsiveContainer>
