@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import time
@@ -23,6 +24,15 @@ with sqlite3.connect(DB_PATH) as connection:
         CREATE TABLE IF NOT EXISTS watchlist (
             symbol TEXT PRIMARY KEY,
             added_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS series_cache (
+            symbol TEXT PRIMARY KEY,
+            fetched_at REAL NOT NULL,
+            data TEXT NOT NULL
         )
         """
     )
@@ -267,10 +277,44 @@ _series_cache: dict[str, tuple[float, list]] = {}
 _SERIES_CACHE_TTL_SECONDS = 12 * 60 * 60
 
 
+def _load_disk_cached_series(clean_symbol: str):
+    with sqlite3.connect(DB_PATH) as connection:
+        row = connection.execute(
+            "SELECT fetched_at, data FROM series_cache WHERE symbol = ?",
+            (clean_symbol,),
+        ).fetchone()
+
+    if not row:
+        return None
+
+    fetched_at, data_json = row
+    return (fetched_at, json.loads(data_json))
+
+
+def _save_series_cache(clean_symbol: str, fetched_at: float, series: list):
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO series_cache (symbol, fetched_at, data) VALUES (?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                fetched_at = excluded.fetched_at,
+                data = excluded.data
+            """,
+            (clean_symbol, fetched_at, json.dumps(series)),
+        )
+
+
 async def fetch_daily_series(clean_symbol: str):
+    now = time.time()
+
     cached = _series_cache.get(clean_symbol)
-    if cached and time.monotonic() - cached[0] < _SERIES_CACHE_TTL_SECONDS:
+    if cached and now - cached[0] < _SERIES_CACHE_TTL_SECONDS:
         return cached[1]
+
+    disk_cached = _load_disk_cached_series(clean_symbol)
+    if disk_cached and now - disk_cached[0] < _SERIES_CACHE_TTL_SECONDS:
+        _series_cache[clean_symbol] = disk_cached
+        return disk_cached[1]
 
     if not ALPHA_VANTAGE_API_KEY:
         raise HTTPException(
@@ -330,7 +374,8 @@ async def fetch_daily_series(clean_symbol: str):
         )
 
     series.reverse()
-    _series_cache[clean_symbol] = (time.monotonic(), series)
+    _series_cache[clean_symbol] = (now, series)
+    _save_series_cache(clean_symbol, now, series)
     return series
 
 
