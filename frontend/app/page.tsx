@@ -20,6 +20,7 @@ type Stock = {
   previous_close: number;
   signal: string;
   signal_reason: string;
+  signal_win_rate: number | null;
   rsi: number | null;
 };
 
@@ -29,6 +30,7 @@ type WatchlistQuote = {
   change?: string;
   signal?: string;
   signal_reason?: string;
+  signal_win_rate?: number | null;
   error?: string;
 };
 
@@ -290,17 +292,36 @@ export default function Home() {
                       >
                         {quote.change}
                       </p>
-                      <span
+                      <div
                         style={{
-                          display: "inline-block",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
                           marginTop: "6px",
-                          fontSize: "12px",
-                          fontWeight: "bold",
-                          color: signalColor(quote.signal),
                         }}
                       >
-                        {quote.signal}
-                      </span>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            color: signalColor(quote.signal),
+                          }}
+                        >
+                          {quote.signal}
+                        </span>
+                        {quote.signal_win_rate !== null &&
+                          quote.signal_win_rate !== undefined && (
+                            <span
+                              title="Historical win rate of this signal over the last 30 days"
+                              style={{
+                                fontSize: "11px",
+                                color: "#94a3b8",
+                              }}
+                            >
+                              ({quote.signal_win_rate}% win rate)
+                            </span>
+                          )}
+                      </div>
                     </>
                   )}
                 </div>
@@ -364,7 +385,20 @@ export default function Home() {
             <p>Price movement: ${stock.price_change.toFixed(2)}</p>
             <p>Previous close: ${stock.previous_close.toFixed(2)}</p>
             {stock.rsi !== null && <p>RSI (14): {stock.rsi}</p>}
-            <h2 style={{ color: signalColor(stock.signal) }}>{stock.signal}</h2>
+            <h2 style={{ color: signalColor(stock.signal) }}>
+              {stock.signal}
+              {stock.signal_win_rate !== null && (
+                <span
+                  style={{
+                    fontSize: "14px",
+                    color: "#94a3b8",
+                    marginLeft: "10px",
+                  }}
+                >
+                  {stock.signal_win_rate}% historical win rate
+                </span>
+              )}
+            </h2>
             <p style={{ color: "#94a3b8", fontSize: "14px" }}>
               {stock.signal_reason}
             </p>

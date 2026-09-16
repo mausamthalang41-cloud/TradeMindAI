@@ -143,6 +143,7 @@ async def get_stock_data(clean_symbol: str):
     sma5 = None
     sma20 = None
     rsi = None
+    closes = None
 
     try:
         closes = [point["close"] for point in await fetch_daily_series(clean_symbol)]
@@ -156,6 +157,13 @@ async def get_stock_data(clean_symbol: str):
 
     signal, signal_reason = determine_signal(percentage_change, sma5, sma20, rsi)
 
+    signal_win_rate = None
+    if closes and len(closes) >= 3:
+        for row in run_backtest(closes)["summary"]:
+            if row["signal"] == signal:
+                signal_win_rate = row["win_rate"]
+                break
+
     return {
         "symbol": clean_symbol,
         "price": round(current_price, 2),
@@ -164,6 +172,7 @@ async def get_stock_data(clean_symbol: str):
         "previous_close": round(data.get("pc", 0), 2),
         "signal": signal,
         "signal_reason": signal_reason,
+        "signal_win_rate": signal_win_rate,
         "rsi": rsi,
     }
 
@@ -299,22 +308,7 @@ def determine_signal(percentage_change, sma5, sma20, rsi):
     return signal, " · ".join(reasons)
 
 
-@app.get("/backtest/{symbol}")
-async def backtest_signal(symbol: str):
-    clean_symbol = symbol.strip().upper()
-
-    if not clean_symbol:
-        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
-
-    series = await fetch_daily_series(clean_symbol)
-    closes = [point["close"] for point in series]
-
-    if len(closes) < 3:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Not enough historical data to backtest {clean_symbol}.",
-        )
-
+def run_backtest(closes: list[float]) -> dict:
     trades = []
 
     for index in range(1, len(closes) - 1):
@@ -328,7 +322,7 @@ async def backtest_signal(symbol: str):
         signal, _ = determine_signal(day_change, sma5, sma20, rsi)
         forward_return = (closes[index + 1] - closes[index]) / closes[index] * 100
 
-        trades.append({"date": series[index]["date"], "signal": signal, "forward_return": forward_return})
+        trades.append({"signal": signal, "forward_return": forward_return})
 
     summary = []
 
@@ -361,14 +355,33 @@ async def backtest_signal(symbol: str):
             }
         )
 
-    buy_and_hold_return = round((closes[-1] - closes[0]) / closes[0] * 100, 2)
+    buy_and_hold_return = (
+        round((closes[-1] - closes[0]) / closes[0] * 100, 2) if closes else 0
+    )
 
     return {
-        "symbol": clean_symbol,
         "days_tested": len(trades),
         "summary": summary,
         "buy_and_hold_return": buy_and_hold_return,
     }
+
+
+@app.get("/backtest/{symbol}")
+async def backtest_signal(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    closes = [point["close"] for point in await fetch_daily_series(clean_symbol)]
+
+    if len(closes) < 3:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Not enough historical data to backtest {clean_symbol}.",
+        )
+
+    return {"symbol": clean_symbol, **run_backtest(closes)}
 
 
 @app.get("/history/{symbol}")
