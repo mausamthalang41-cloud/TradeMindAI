@@ -7,3 +7,5 @@ __pycache__/
 .env
 *.env
 backend/.env
+# Local database
+database/*.db

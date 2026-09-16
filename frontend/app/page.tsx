@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -40,15 +40,41 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [watchlist, setWatchlist] = useState<string[]>([]);
 
-  async function searchStock() {
-    const cleanSymbol = symbol.trim().toUpperCase();
+  useEffect(() => {
+    loadWatchlist();
+  }, []);
+
+  async function loadWatchlist() {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/watchlist");
+      const data = await response.json();
+      setWatchlist(
+        (data.watchlist as { symbol: string }[]).map((item) => item.symbol)
+      );
+    } catch {
+      // Watchlist is a non-critical enhancement; ignore failures.
+    }
+  }
+
+  async function toggleWatchlist(targetSymbol: string) {
+    const method = watchlist.includes(targetSymbol) ? "DELETE" : "POST";
+    await fetch(`http://127.0.0.1:8000/watchlist/${targetSymbol}`, {
+      method,
+    });
+    loadWatchlist();
+  }
+
+  async function searchStock(symbolOverride?: string) {
+    const cleanSymbol = (symbolOverride ?? symbol).trim().toUpperCase();
 
     if (!cleanSymbol) {
       setError("Please enter a stock symbol.");
       return;
     }
 
+    setSymbol(cleanSymbol);
     setLoading(true);
     setError("");
     setStock(null);
@@ -139,7 +165,7 @@ export default function Home() {
         />
 
         <button
-          onClick={searchStock}
+          onClick={() => searchStock()}
           disabled={loading}
           style={{
             width: "100%",
@@ -154,6 +180,36 @@ export default function Home() {
         >
           {loading ? "Loading..." : "Search"}
         </button>
+
+        {watchlist.length > 0 && (
+          <div
+            style={{
+              marginTop: "20px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px",
+            }}
+          >
+            {watchlist.map((watchedSymbol) => (
+              <button
+                key={watchedSymbol}
+                onClick={() => searchStock(watchedSymbol)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "999px",
+                  border: "1px solid #38bdf8",
+                  background:
+                    stock?.symbol === watchedSymbol ? "#38bdf8" : "transparent",
+                  color: "white",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                }}
+              >
+                {watchedSymbol}
+              </button>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div
@@ -177,7 +233,34 @@ export default function Home() {
               borderRadius: "15px",
             }}
           >
-            <h2>{stock.symbol}</h2>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+              }}
+            >
+              <h2 style={{ margin: 0 }}>{stock.symbol}</h2>
+              <button
+                onClick={() => toggleWatchlist(stock.symbol)}
+                title={
+                  watchlist.includes(stock.symbol)
+                    ? "Remove from watchlist"
+                    : "Add to watchlist"
+                }
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "24px",
+                  cursor: "pointer",
+                  color: watchlist.includes(stock.symbol)
+                    ? "#facc15"
+                    : "#64748b",
+                }}
+              >
+                {watchlist.includes(stock.symbol) ? "★" : "☆"}
+              </button>
+            </div>
             <h3>${stock.price.toFixed(2)}</h3>
             <p>Change: {stock.change}</p>
             <p>Price movement: ${stock.price_change.toFixed(2)}</p>

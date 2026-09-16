@@ -1,5 +1,7 @@
 import os
+import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -11,6 +13,19 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).with_name(".env"))
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+
+DB_PATH = Path(__file__).resolve().parent.parent / "database" / "trademind.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+with sqlite3.connect(DB_PATH) as connection:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS watchlist (
+            symbol TEXT PRIMARY KEY,
+            added_at TEXT NOT NULL
+        )
+        """
+    )
 
 app = FastAPI(
     title="TradeMind AI API",
@@ -38,6 +53,42 @@ def home():
         "status": "Running",
         "data_source": "Finnhub",
     }
+
+
+@app.get("/watchlist")
+def get_watchlist():
+    with sqlite3.connect(DB_PATH) as connection:
+        rows = connection.execute(
+            "SELECT symbol, added_at FROM watchlist ORDER BY added_at"
+        ).fetchall()
+
+    return {"watchlist": [{"symbol": row[0], "added_at": row[1]} for row in rows]}
+
+
+@app.post("/watchlist/{symbol}")
+def add_to_watchlist(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO watchlist (symbol, added_at) VALUES (?, ?)",
+            (clean_symbol, datetime.now(timezone.utc).isoformat()),
+        )
+
+    return {"symbol": clean_symbol, "watchlisted": True}
+
+
+@app.delete("/watchlist/{symbol}")
+def remove_from_watchlist(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute("DELETE FROM watchlist WHERE symbol = ?", (clean_symbol,))
+
+    return {"symbol": clean_symbol, "watchlisted": False}
 
 
 @app.get("/stock/{symbol}")
