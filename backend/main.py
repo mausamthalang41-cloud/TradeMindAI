@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -97,6 +97,56 @@ async def get_watchlist_quotes():
             quotes.append({"symbol": symbol, "error": error.detail})
 
     return {"quotes": quotes}
+
+
+def format_news_articles(raw_articles: list, limit: int = 6) -> list:
+    articles = [
+        {
+            "headline": item["headline"],
+            "source": item.get("source", ""),
+            "url": item.get("url", ""),
+            "datetime": item.get("datetime", 0),
+        }
+        for item in raw_articles
+        if item.get("headline")
+    ]
+    articles.sort(key=lambda article: article["datetime"], reverse=True)
+    return articles[:limit]
+
+
+@app.get("/news/{symbol}")
+async def get_company_news(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    if not FINNHUB_API_KEY:
+        raise HTTPException(status_code=500, detail="Finnhub API key is missing.")
+
+    to_date = date.today()
+    from_date = to_date - timedelta(days=7)
+
+    url = "https://finnhub.io/api/v1/company-news"
+    parameters = {
+        "symbol": clean_symbol,
+        "from": from_date.isoformat(),
+        "to": to_date.isoformat(),
+        "token": FINNHUB_API_KEY,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params=parameters)
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not contact the news service.",
+        )
+
+    return {"symbol": clean_symbol, "articles": format_news_articles(data)}
 
 
 @app.get("/symbols/search")

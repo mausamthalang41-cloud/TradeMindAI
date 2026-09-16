@@ -47,6 +47,13 @@ type Backtest = {
   buy_and_hold_return: number;
 };
 
+type NewsArticle = {
+  headline: string;
+  source: string;
+  url: string;
+  datetime: number;
+};
+
 type SymbolSuggestion = {
   symbol: string;
   description: string;
@@ -68,6 +75,7 @@ export default function Home() {
   const [stock, setStock] = useState<Stock | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [backtest, setBacktest] = useState<Backtest | null>(null);
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [watchlistQuotes, setWatchlistQuotes] = useState<WatchlistQuote[]>([]);
@@ -139,13 +147,15 @@ export default function Home() {
     setStock(null);
     setHistory([]);
     setBacktest(null);
+    setNews([]);
 
     try {
-      const [stockResponse, historyResponse, backtestResponse] =
+      const [stockResponse, historyResponse, backtestResponse, newsResponse] =
         await Promise.all([
           fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
           fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
           fetch(`http://127.0.0.1:8000/backtest/${cleanSymbol}`),
+          fetch(`http://127.0.0.1:8000/news/${cleanSymbol}`),
         ]);
 
       const stockData = await stockResponse.json();
@@ -166,6 +176,11 @@ export default function Home() {
 
       if (backtestResponse.ok) {
         setBacktest(await backtestResponse.json());
+      }
+
+      if (newsResponse.ok) {
+        const newsData = await newsResponse.json();
+        setNews(newsData.articles ?? []);
       }
     } catch (error) {
       setError(
@@ -480,6 +495,49 @@ export default function Home() {
             <p style={{ color: "#94a3b8", fontSize: "14px" }}>
               {stock.signal_reason}
             </p>
+          </div>
+        )}
+
+        {news.length > 0 && (
+          <div
+            style={{
+              marginTop: "30px",
+              padding: "20px",
+              background: "#334155",
+              borderRadius: "15px",
+            }}
+          >
+            <h2 style={{ textAlign: "center" }}>Recent News</h2>
+
+            <div style={{ marginTop: "15px" }}>
+              {news.map((article) => (
+                <a
+                  key={article.url}
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "block",
+                    padding: "10px 0",
+                    borderBottom: "1px solid #475569",
+                    color: "white",
+                    textDecoration: "none",
+                  }}
+                >
+                  <p style={{ margin: 0 }}>{article.headline}</p>
+                  <p
+                    style={{
+                      margin: "4px 0 0",
+                      fontSize: "12px",
+                      color: "#94a3b8",
+                    }}
+                  >
+                    {article.source} ·{" "}
+                    {new Date(article.datetime * 1000).toLocaleDateString()}
+                  </p>
+                </a>
+              ))}
+            </div>
           </div>
         )}
 
