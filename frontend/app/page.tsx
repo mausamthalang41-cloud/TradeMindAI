@@ -19,6 +19,8 @@ type Stock = {
   price_change: number;
   previous_close: number;
   signal: string;
+  signal_reason: string;
+  rsi: number | null;
 };
 
 type HistoryPoint = {
@@ -180,7 +182,11 @@ export default function Home() {
             <p>Change: {stock.change}</p>
             <p>Price movement: ${stock.price_change.toFixed(2)}</p>
             <p>Previous close: ${stock.previous_close.toFixed(2)}</p>
+            {stock.rsi !== null && <p>RSI (14): {stock.rsi}</p>}
             <h2 style={{ color: signalColor }}>{stock.signal}</h2>
+            <p style={{ color: "#94a3b8", fontSize: "14px" }}>
+              {stock.signal_reason}
+            </p>
           </div>
         )}
 

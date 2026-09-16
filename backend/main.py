@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 import httpx
@@ -76,12 +77,21 @@ async def stock(symbol: str):
             detail=f"No market data found for {clean_symbol}.",
         )
 
-    if percentage_change > 0:
-        signal = "BUY"
-    elif percentage_change < 0:
-        signal = "SELL"
-    else:
-        signal = "HOLD"
+    sma5 = None
+    sma20 = None
+    rsi = None
+
+    try:
+        closes = [point["close"] for point in await fetch_daily_series(clean_symbol)]
+        if len(closes) >= 5:
+            sma5 = round(sum(closes[-5:]) / 5, 2)
+        if len(closes) >= 20:
+            sma20 = round(sum(closes[-20:]) / 20, 2)
+        rsi = calculate_rsi(closes)
+    except HTTPException:
+        pass
+
+    signal, signal_reason = determine_signal(percentage_change, sma5, sma20, rsi)
 
     return {
         "symbol": clean_symbol,
@@ -90,13 +100,19 @@ async def stock(symbol: str):
         "price_change": round(price_change, 2),
         "previous_close": round(data.get("pc", 0), 2),
         "signal": signal,
+        "signal_reason": signal_reason,
+        "rsi": rsi,
     }
-@app.get("/history/{symbol}")
-async def stock_history(symbol: str):
-    clean_symbol = symbol.strip().upper()
 
-    if not clean_symbol:
-        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+_series_cache: dict[str, tuple[float, list]] = {}
+_SERIES_CACHE_TTL_SECONDS = 60
+
+
+async def fetch_daily_series(clean_symbol: str):
+    cached = _series_cache.get(clean_symbol)
+    if cached and time.monotonic() - cached[0] < _SERIES_CACHE_TTL_SECONDS:
+        return cached[1]
 
     if not ALPHA_VANTAGE_API_KEY:
         raise HTTPException(
@@ -141,10 +157,10 @@ async def stock_history(symbol: str):
             detail=f"No historical data found for {clean_symbol}.",
         )
 
-    history = []
+    series = []
 
     for date, values in list(daily_prices.items())[:30]:
-        history.append(
+        series.append(
             {
                 "date": date,
                 "open": round(float(values["1. open"]), 2),
@@ -155,7 +171,79 @@ async def stock_history(symbol: str):
             }
         )
 
-    history.reverse()
+    series.reverse()
+    _series_cache[clean_symbol] = (time.monotonic(), series)
+    return series
+
+
+def calculate_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return None
+
+    changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    gains = [max(change, 0) for change in changes]
+    losses = [max(-change, 0) for change in changes]
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for gain, loss in zip(gains[period:], losses[period:]):
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+
+    if avg_loss == 0:
+        return 100.0
+
+    relative_strength = avg_gain / avg_loss
+    return round(100 - (100 / (1 + relative_strength)), 2)
+
+
+def determine_signal(percentage_change, sma5, sma20, rsi):
+    score = 0
+    reasons = []
+
+    if sma5 is not None and sma20 is not None:
+        if sma5 > sma20:
+            score += 1
+            reasons.append("5-day average is above the 20-day average")
+        elif sma5 < sma20:
+            score -= 1
+            reasons.append("5-day average is below the 20-day average")
+
+    if rsi is not None:
+        if rsi < 30:
+            score += 1
+            reasons.append(f"RSI of {rsi} is oversold")
+        elif rsi > 70:
+            score -= 1
+            reasons.append(f"RSI of {rsi} is overbought")
+
+    if percentage_change > 0:
+        score += 0.5
+    elif percentage_change < 0:
+        score -= 0.5
+
+    if not reasons:
+        reasons.append("Based on today's price move only")
+
+    if score > 0:
+        signal = "BUY"
+    elif score < 0:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+
+    return signal, " · ".join(reasons)
+
+
+@app.get("/history/{symbol}")
+async def stock_history(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    history = await fetch_daily_series(clean_symbol)
 
     for index, point in enumerate(history):
         if index >= 4:
