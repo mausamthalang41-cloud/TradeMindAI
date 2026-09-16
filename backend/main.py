@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_signal import train_and_predict
+from indicators import calculate_rsi
+
 
 load_dotenv(Path(__file__).with_name(".env"))
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
@@ -122,6 +125,23 @@ def format_news_articles(raw_articles: list, limit: int = 6) -> list:
     ]
     articles.sort(key=lambda article: article["datetime"], reverse=True)
     return articles[:limit]
+
+
+@app.get("/ai/predict/{symbol}")
+async def ai_predict(symbol: str):
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    series = await fetch_training_series(clean_symbol)
+
+    try:
+        result = train_and_predict(series)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+    return {"symbol": clean_symbol, **result}
 
 
 @app.get("/news/{symbol}")
@@ -304,18 +324,7 @@ def _save_series_cache(clean_symbol: str, fetched_at: float, series: list):
         )
 
 
-async def fetch_daily_series(clean_symbol: str):
-    now = time.time()
-
-    cached = _series_cache.get(clean_symbol)
-    if cached and now - cached[0] < _SERIES_CACHE_TTL_SECONDS:
-        return cached[1]
-
-    disk_cached = _load_disk_cached_series(clean_symbol)
-    if disk_cached and now - disk_cached[0] < _SERIES_CACHE_TTL_SECONDS:
-        _series_cache[clean_symbol] = disk_cached
-        return disk_cached[1]
-
+async def _fetch_alpha_vantage_daily(clean_symbol: str, outputsize: str, limit: int):
     if not ALPHA_VANTAGE_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -326,7 +335,7 @@ async def fetch_daily_series(clean_symbol: str):
     parameters = {
         "function": "TIME_SERIES_DAILY",
         "symbol": clean_symbol,
-        "outputsize": "compact",
+        "outputsize": outputsize,
         "apikey": ALPHA_VANTAGE_API_KEY,
     }
 
@@ -361,7 +370,7 @@ async def fetch_daily_series(clean_symbol: str):
 
     series = []
 
-    for date, values in list(daily_prices.items())[:30]:
+    for date, values in list(daily_prices.items())[:limit]:
         series.append(
             {
                 "date": date,
@@ -374,31 +383,54 @@ async def fetch_daily_series(clean_symbol: str):
         )
 
     series.reverse()
+    return series
+
+
+# A cached series shorter than this was fetched by an older version of this
+# function that capped the request at 30 rows (before the AI predictor needed
+# up to 100) - treat those as stale so upgrading doesn't silently starve the
+# predictor of history for up to a full cache TTL.
+_MIN_USABLE_SERIES_LENGTH = 50
+
+
+async def _fetch_and_cache_series(clean_symbol: str):
+    """The full ~100-day compact series Alpha Vantage's free tier allows
+    (outputsize=full is a premium-only feature), cached once per symbol so
+    the chart/signal/backtest (last 30 days) and the AI predictor (all ~100)
+    share a single fetch instead of burning quota twice.
+    """
+    now = time.time()
+
+    cached = _series_cache.get(clean_symbol)
+    if (
+        cached
+        and now - cached[0] < _SERIES_CACHE_TTL_SECONDS
+        and len(cached[1]) >= _MIN_USABLE_SERIES_LENGTH
+    ):
+        return cached[1]
+
+    disk_cached = _load_disk_cached_series(clean_symbol)
+    if (
+        disk_cached
+        and now - disk_cached[0] < _SERIES_CACHE_TTL_SECONDS
+        and len(disk_cached[1]) >= _MIN_USABLE_SERIES_LENGTH
+    ):
+        _series_cache[clean_symbol] = disk_cached
+        return disk_cached[1]
+
+    series = await _fetch_alpha_vantage_daily(clean_symbol, "compact", 100)
     _series_cache[clean_symbol] = (now, series)
     _save_series_cache(clean_symbol, now, series)
     return series
 
 
-def calculate_rsi(closes, period=14):
-    if len(closes) < period + 1:
-        return None
+async def fetch_daily_series(clean_symbol: str):
+    series = await _fetch_and_cache_series(clean_symbol)
+    return series[-30:]
 
-    changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
-    gains = [max(change, 0) for change in changes]
-    losses = [max(-change, 0) for change in changes]
 
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-
-    for gain, loss in zip(gains[period:], losses[period:]):
-        avg_gain = (avg_gain * (period - 1) + gain) / period
-        avg_loss = (avg_loss * (period - 1) + loss) / period
-
-    if avg_loss == 0:
-        return 100.0
-
-    relative_strength = avg_gain / avg_loss
-    return round(100 - (100 / (1 + relative_strength)), 2)
+async def fetch_training_series(clean_symbol: str):
+    return await _fetch_and_cache_series(clean_symbol)
 
 
 def determine_signal(percentage_change, sma5, sma20, rsi):

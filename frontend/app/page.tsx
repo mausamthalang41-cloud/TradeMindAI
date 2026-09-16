@@ -47,6 +47,13 @@ type Backtest = {
   buy_and_hold_return: number;
 };
 
+type AiPrediction = {
+  probability_up: number;
+  test_accuracy: number | null;
+  samples_trained: number;
+  samples_tested: number;
+};
+
 type NewsArticle = {
   headline: string;
   source: string;
@@ -75,6 +82,7 @@ export default function Home() {
   const [stock, setStock] = useState<Stock | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [backtest, setBacktest] = useState<Backtest | null>(null);
+  const [aiPrediction, setAiPrediction] = useState<AiPrediction | null>(null);
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -147,16 +155,23 @@ export default function Home() {
     setStock(null);
     setHistory([]);
     setBacktest(null);
+    setAiPrediction(null);
     setNews([]);
 
     try {
-      const [stockResponse, historyResponse, backtestResponse, newsResponse] =
-        await Promise.all([
-          fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
-          fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
-          fetch(`http://127.0.0.1:8000/backtest/${cleanSymbol}`),
-          fetch(`http://127.0.0.1:8000/news/${cleanSymbol}`),
-        ]);
+      const [
+        stockResponse,
+        historyResponse,
+        backtestResponse,
+        aiResponse,
+        newsResponse,
+      ] = await Promise.all([
+        fetch(`http://127.0.0.1:8000/stock/${cleanSymbol}`),
+        fetch(`http://127.0.0.1:8000/history/${cleanSymbol}`),
+        fetch(`http://127.0.0.1:8000/backtest/${cleanSymbol}`),
+        fetch(`http://127.0.0.1:8000/ai/predict/${cleanSymbol}`),
+        fetch(`http://127.0.0.1:8000/news/${cleanSymbol}`),
+      ]);
 
       const stockData = await stockResponse.json();
       const historyData = await historyResponse.json();
@@ -178,6 +193,10 @@ export default function Home() {
         setBacktest(await backtestResponse.json());
       }
 
+      if (aiResponse.ok) {
+        setAiPrediction(await aiResponse.json());
+      }
+
       if (newsResponse.ok) {
         const newsData = await newsResponse.json();
         setNews(newsData.articles ?? []);
@@ -196,6 +215,12 @@ export default function Home() {
   function signalColor(signal?: string) {
     if (signal === "BUY") return "#22c55e";
     if (signal === "SELL") return "#ef4444";
+    return "#facc15";
+  }
+
+  function probabilityColor(probabilityUp: number) {
+    if (probabilityUp >= 55) return "#22c55e";
+    if (probabilityUp <= 45) return "#ef4444";
     return "#facc15";
   }
 
@@ -696,6 +721,46 @@ export default function Home() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {aiPrediction && (
+          <div
+            style={{
+              marginTop: "30px",
+              padding: "20px",
+              background: "#334155",
+              borderRadius: "15px",
+            }}
+          >
+            <h2 style={{ textAlign: "center" }}>AI Prediction</h2>
+
+            <p
+              style={{
+                textAlign: "center",
+                marginTop: "10px",
+                fontSize: "22px",
+                fontWeight: "bold",
+                color: probabilityColor(aiPrediction.probability_up),
+              }}
+            >
+              {aiPrediction.probability_up}% chance of a higher close
+              tomorrow
+            </p>
+
+            <p
+              style={{
+                textAlign: "center",
+                color: "#94a3b8",
+                fontSize: "14px",
+                marginTop: "5px",
+              }}
+            >
+              {aiPrediction.test_accuracy !== null
+                ? `Logistic regression trained on this symbol's own price history: ${aiPrediction.test_accuracy}% accurate on ${aiPrediction.samples_tested} held-out days it wasn't trained on (${aiPrediction.samples_trained} training days).`
+                : `Logistic regression trained on ${aiPrediction.samples_trained} days of this symbol's own price history.`}{" "}
+              Not financial advice - a coin flip beats this on a bad day.
+            </p>
           </div>
         )}
 

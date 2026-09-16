@@ -2,9 +2,10 @@
 
 A personal stock research app: live quotes, a 30-day price chart with moving
 averages, a BUY/SELL/HOLD signal (SMA5/SMA20 trend + RSI14) with its own
-historical win rate, a backtest of that signal against the last 30 days, a
-persistent watchlist, symbol autocomplete, and recent news for the searched
-symbol.
+historical win rate, a backtest of that signal against the last 30 days, an
+actual ML model (logistic regression, trained fresh per symbol) predicting
+tomorrow's direction with honest held-out accuracy, a persistent watchlist,
+symbol autocomplete, and recent news for the searched symbol.
 
 ## Stack
 
@@ -60,6 +61,7 @@ python -m pytest
 | `GET /stock/{symbol}` | Live quote + BUY/SELL/HOLD signal, reason, and historical win rate |
 | `GET /history/{symbol}` | 30-day OHLCV with SMA5/SMA20 |
 | `GET /backtest/{symbol}` | Replays the signal logic day-by-day and reports occurrences/avg return/win rate per signal, plus a buy-and-hold baseline |
+| `GET /ai/predict/{symbol}` | Trains a logistic regression on the symbol's own ~100-day price history (`backend/ai_signal.py`) and predicts the probability tomorrow's close is higher, with accuracy on held-out days |
 | `GET /news/{symbol}` | Last 7 days of headlines |
 | `GET /symbols/search?q=` | Ticker/company name autocomplete |
 | `GET /watchlist/quotes` | Batched quote + signal for every saved symbol |
@@ -67,9 +69,17 @@ python -m pytest
 
 ## Notes
 
-- The signal is a simple rule (SMA trend + RSI + today's price move), not a
-  trained model - the backtest exists so you can see how it's actually
-  performed rather than trusting it blindly.
-- Alpha Vantage's free tier is the tightest constraint (25 requests/day).
-  Responses are cached for 12 hours in both memory and `database/trademind.db`,
-  so normal use stays well under that even across backend restarts.
+- The BUY/SELL/HOLD signal is a hand-written rule (SMA trend + RSI + today's
+  price move), not a trained model - the backtest exists so you can see how
+  it's actually performed rather than trusting it blindly.
+- `/ai/predict` is the actual ML piece: a `LogisticRegression` trained from
+  scratch on each symbol's own price history every time it's called (fast -
+  under 100 rows, a few features). Its held-out accuracy usually lands close
+  to a coin flip, which is realistic for daily-bar technical features alone;
+  it's shown alongside the prediction rather than hidden, on purpose.
+- Alpha Vantage's free tier is the tightest constraint (25 requests/day, and
+  `outputsize=full` is a paid-only feature - `compact` tops out around 100
+  daily bars). One fetch per symbol serves the chart/signal/backtest (last 30
+  days) and the AI predictor (all ~100), cached for 12 hours in both memory
+  and `database/trademind.db`, so normal use stays well under quota even
+  across backend restarts.

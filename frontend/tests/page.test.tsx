@@ -88,6 +88,16 @@ describe("Home", () => {
         },
       },
       {
+        match: (url) => url.includes("/ai/predict/AAPL"),
+        body: {
+          symbol: "AAPL",
+          probability_up: 63.2,
+          test_accuracy: 56.2,
+          samples_trained: 63,
+          samples_tested: 16,
+        },
+      },
+      {
         match: (url) => url.includes("/news/AAPL"),
         body: {
           symbol: "AAPL",
@@ -118,6 +128,10 @@ describe("Home", () => {
     expect(screen.getByText(/\+0.25%/)).toBeInTheDocument();
 
     expect(
+      await screen.findByText(/63.2% chance of a higher close tomorrow/)
+    ).toBeInTheDocument();
+
+    expect(
       await screen.findByText("Apple announces new product")
     ).toBeInTheDocument();
   });
@@ -140,6 +154,11 @@ describe("Home", () => {
         match: (url) => url.includes("/backtest/BADSYM"),
         ok: false,
         body: { detail: "Not enough historical data." },
+      },
+      {
+        match: (url) => url.includes("/ai/predict/BADSYM"),
+        ok: false,
+        body: { detail: "Not enough history to train a model." },
       },
       {
         match: (url) => url.includes("/news/BADSYM"),
@@ -180,6 +199,11 @@ describe("Home", () => {
       {
         match: (url) => url.includes("/backtest/AAPL"),
         body: { symbol: "AAPL", days_tested: 0, summary: [], buy_and_hold_return: 0 },
+      },
+      {
+        match: (url) => url.includes("/ai/predict/AAPL"),
+        ok: false,
+        body: { detail: "Not enough history to train a model." },
       },
       { match: (url) => url.includes("/news/AAPL"), body: { symbol: "AAPL", articles: [] } },
       {
