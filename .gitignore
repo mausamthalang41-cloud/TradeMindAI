@@ -9,3 +9,5 @@ __pycache__/
 backend/.env
 # Local database
 database/*.db
+# Test cache
+.pytest_cache/
