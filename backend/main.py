@@ -211,7 +211,10 @@ async def get_stock_data(clean_symbol: str):
 
 
 _series_cache: dict[str, tuple[float, list]] = {}
-_SERIES_CACHE_TTL_SECONDS = 60
+# Alpha Vantage's free tier caps out at 25 requests/day, and TIME_SERIES_DAILY
+# only changes once per trading day, so cache aggressively to make that quota
+# stretch across a full day of repeated searches instead of a single minute.
+_SERIES_CACHE_TTL_SECONDS = 12 * 60 * 60
 
 
 async def fetch_daily_series(clean_symbol: str):
