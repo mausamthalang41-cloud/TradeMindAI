@@ -23,6 +23,15 @@ type Stock = {
   rsi: number | null;
 };
 
+type WatchlistQuote = {
+  symbol: string;
+  price?: number;
+  change?: string;
+  signal?: string;
+  signal_reason?: string;
+  error?: string;
+};
+
 type HistoryPoint = {
   date: string;
   open: number;
@@ -40,7 +49,8 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [watchlistQuotes, setWatchlistQuotes] = useState<WatchlistQuote[]>([]);
+  const watchlistSymbols = watchlistQuotes.map((quote) => quote.symbol);
 
   useEffect(() => {
     loadWatchlist();
@@ -48,18 +58,18 @@ export default function Home() {
 
   async function loadWatchlist() {
     try {
-      const response = await fetch("http://127.0.0.1:8000/watchlist");
+      const response = await fetch("http://127.0.0.1:8000/watchlist/quotes");
       const data = await response.json();
-      setWatchlist(
-        (data.watchlist as { symbol: string }[]).map((item) => item.symbol)
-      );
+      setWatchlistQuotes(data.quotes);
     } catch {
       // Watchlist is a non-critical enhancement; ignore failures.
     }
   }
 
   async function toggleWatchlist(targetSymbol: string) {
-    const method = watchlist.includes(targetSymbol) ? "DELETE" : "POST";
+    const method = watchlistSymbols.includes(targetSymbol)
+      ? "DELETE"
+      : "POST";
     await fetch(`http://127.0.0.1:8000/watchlist/${targetSymbol}`, {
       method,
     });
@@ -112,12 +122,11 @@ export default function Home() {
     }
   }
 
-  const signalColor =
-    stock?.signal === "BUY"
-      ? "#22c55e"
-      : stock?.signal === "SELL"
-      ? "#ef4444"
-      : "#facc15";
+  function signalColor(signal?: string) {
+    if (signal === "BUY") return "#22c55e";
+    if (signal === "SELL") return "#ef4444";
+    return "#facc15";
+  }
 
   return (
     <main
@@ -181,33 +190,101 @@ export default function Home() {
           {loading ? "Loading..." : "Search"}
         </button>
 
-        {watchlist.length > 0 && (
-          <div
-            style={{
-              marginTop: "20px",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "8px",
-            }}
-          >
-            {watchlist.map((watchedSymbol) => (
-              <button
-                key={watchedSymbol}
-                onClick={() => searchStock(watchedSymbol)}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: "999px",
-                  border: "1px solid #38bdf8",
-                  background:
-                    stock?.symbol === watchedSymbol ? "#38bdf8" : "transparent",
-                  color: "white",
-                  cursor: "pointer",
-                  fontSize: "14px",
-                }}
-              >
-                {watchedSymbol}
-              </button>
-            ))}
+        {watchlistQuotes.length > 0 && (
+          <div style={{ marginTop: "30px" }}>
+            <h2 style={{ textAlign: "center" }}>Watchlist</h2>
+
+            <div
+              style={{
+                marginTop: "15px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {watchlistQuotes.map((quote) => (
+                <div
+                  key={quote.symbol}
+                  onClick={() => searchStock(quote.symbol)}
+                  style={{
+                    cursor: "pointer",
+                    padding: "15px",
+                    borderRadius: "12px",
+                    background: "#334155",
+                    border:
+                      stock?.symbol === quote.symbol
+                        ? "2px solid #38bdf8"
+                        : "2px solid transparent",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <strong>{quote.symbol}</strong>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleWatchlist(quote.symbol);
+                      }}
+                      title="Remove from watchlist"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        fontSize: "16px",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {quote.error ? (
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        fontSize: "13px",
+                        color: "#f87171",
+                      }}
+                    >
+                      {quote.error}
+                    </p>
+                  ) : (
+                    <>
+                      <p style={{ margin: "6px 0 0" }}>
+                        ${quote.price?.toFixed(2)}
+                      </p>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "13px",
+                          color: (quote.change ?? "").startsWith("-")
+                            ? "#ef4444"
+                            : "#22c55e",
+                        }}
+                      >
+                        {quote.change}
+                      </p>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          marginTop: "6px",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          color: signalColor(quote.signal),
+                        }}
+                      >
+                        {quote.signal}
+                      </span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -244,7 +321,7 @@ export default function Home() {
               <button
                 onClick={() => toggleWatchlist(stock.symbol)}
                 title={
-                  watchlist.includes(stock.symbol)
+                  watchlistSymbols.includes(stock.symbol)
                     ? "Remove from watchlist"
                     : "Add to watchlist"
                 }
@@ -253,12 +330,12 @@ export default function Home() {
                   border: "none",
                   fontSize: "24px",
                   cursor: "pointer",
-                  color: watchlist.includes(stock.symbol)
+                  color: watchlistSymbols.includes(stock.symbol)
                     ? "#facc15"
                     : "#64748b",
                 }}
               >
-                {watchlist.includes(stock.symbol) ? "★" : "☆"}
+                {watchlistSymbols.includes(stock.symbol) ? "★" : "☆"}
               </button>
             </div>
             <h3>${stock.price.toFixed(2)}</h3>
@@ -266,7 +343,7 @@ export default function Home() {
             <p>Price movement: ${stock.price_change.toFixed(2)}</p>
             <p>Previous close: ${stock.previous_close.toFixed(2)}</p>
             {stock.rsi !== null && <p>RSI (14): {stock.rsi}</p>}
-            <h2 style={{ color: signalColor }}>{stock.signal}</h2>
+            <h2 style={{ color: signalColor(stock.signal) }}>{stock.signal}</h2>
             <p style={{ color: "#94a3b8", fontSize: "14px" }}>
               {stock.signal_reason}
             </p>

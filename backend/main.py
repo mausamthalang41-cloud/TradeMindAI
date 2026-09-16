@@ -55,16 +55,6 @@ def home():
     }
 
 
-@app.get("/watchlist")
-def get_watchlist():
-    with sqlite3.connect(DB_PATH) as connection:
-        rows = connection.execute(
-            "SELECT symbol, added_at FROM watchlist ORDER BY added_at"
-        ).fetchall()
-
-    return {"watchlist": [{"symbol": row[0], "added_at": row[1]} for row in rows]}
-
-
 @app.post("/watchlist/{symbol}")
 def add_to_watchlist(symbol: str):
     clean_symbol = symbol.strip().upper()
@@ -91,6 +81,24 @@ def remove_from_watchlist(symbol: str):
     return {"symbol": clean_symbol, "watchlisted": False}
 
 
+@app.get("/watchlist/quotes")
+async def get_watchlist_quotes():
+    with sqlite3.connect(DB_PATH) as connection:
+        rows = connection.execute(
+            "SELECT symbol FROM watchlist ORDER BY added_at"
+        ).fetchall()
+
+    quotes = []
+
+    for (symbol,) in rows:
+        try:
+            quotes.append(await get_stock_data(symbol))
+        except HTTPException as error:
+            quotes.append({"symbol": symbol, "error": error.detail})
+
+    return {"quotes": quotes}
+
+
 @app.get("/stock/{symbol}")
 async def stock(symbol: str):
     clean_symbol = symbol.strip().upper()
@@ -98,6 +106,10 @@ async def stock(symbol: str):
     if not clean_symbol:
         raise HTTPException(status_code=400, detail="Enter a stock symbol.")
 
+    return await get_stock_data(clean_symbol)
+
+
+async def get_stock_data(clean_symbol: str):
     if not FINNHUB_API_KEY:
         raise HTTPException(status_code=500, detail="Finnhub API key is missing.")
 
