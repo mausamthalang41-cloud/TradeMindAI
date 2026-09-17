@@ -6,7 +6,10 @@ from ai_signal import LOOKBACK_DAYS, build_dataset, train_and_predict
 
 
 def _series_from_closes(closes):
-    return [{"close": close} for close in closes]
+    return [
+        {"close": close, "volume": 1_000_000 + (i % 7) * 50_000}
+        for i, close in enumerate(closes)
+    ]
 
 
 def test_build_dataset_shapes_and_labels():
@@ -24,7 +27,7 @@ def test_build_dataset_shapes_and_labels():
     assert len(y) == expected_rows
     assert all(label in (0, 1) for label in y)
     assert latest_features is not None
-    assert len(latest_features) == 4
+    assert len(latest_features) == 7
     assert all(math.isfinite(value) for value in latest_features)
 
 

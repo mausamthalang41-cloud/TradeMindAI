@@ -24,3 +24,24 @@ def simple_moving_average(closes, period):
     if len(closes) < period:
         return None
     return round(sum(closes[-period:]) / period, 2)
+
+
+def _ema_series(values, period):
+    k = 2 / (period + 1)
+    result = [values[0]]
+    for value in values[1:]:
+        result.append(value * k + result[-1] * (1 - k))
+    return result
+
+
+def macd_histogram(closes, fast=12, slow=26, signal=9):
+    """MACD line minus its signal line - positive/rising means bullish
+    momentum is building, negative/falling means it's fading."""
+    if len(closes) < slow + signal:
+        return None
+
+    fast_ema = _ema_series(closes, fast)
+    slow_ema = _ema_series(closes, slow)
+    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
+    signal_line = _ema_series(macd_line, signal)
+    return round(macd_line[-1] - signal_line[-1], 4)
