@@ -36,6 +36,7 @@ export type Backtest = {
 export type AiPrediction = {
   probability_up: number;
   test_accuracy: number | null;
+  baseline_accuracy: number | null;
   samples_trained: number;
   samples_tested: number;
 };

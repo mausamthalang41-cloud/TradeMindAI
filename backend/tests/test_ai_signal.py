@@ -71,3 +71,23 @@ def test_train_and_predict_returns_sane_ranges():
     assert result["samples_tested"] > 0
     if result["test_accuracy"] is not None:
         assert 0.0 <= result["test_accuracy"] <= 100.0
+    if result["baseline_accuracy"] is not None:
+        assert 0.0 <= result["baseline_accuracy"] <= 100.0
+
+
+def test_train_and_predict_reports_baseline_matching_majority_class():
+    # A lopsided but non-monotonic series: mostly up days with the
+    # occasional down day, so the majority-class baseline is well-defined
+    # and its accuracy is independently computable from the pattern itself.
+    closes = [100.0]
+    for i in range(1, 90):
+        step = -1.0 if i % 6 == 0 else 1.0
+        closes.append(closes[-1] + step)
+
+    series = _series_from_closes(closes)
+    result = train_and_predict(series)
+
+    assert result["baseline_accuracy"] is not None
+    # Majority-guess baseline can't do worse than always guessing the rarer
+    # class, and this series is skewed enough that it should beat a coin flip.
+    assert result["baseline_accuracy"] >= 50.0

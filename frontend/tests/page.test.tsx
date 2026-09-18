@@ -93,6 +93,7 @@ describe("Home", () => {
           symbol: "AAPL",
           probability_up: 63.2,
           test_accuracy: 56.2,
+          baseline_accuracy: 50.0,
           samples_trained: 63,
           samples_tested: 16,
         },
@@ -129,6 +130,9 @@ describe("Home", () => {
 
     expect(
       await screen.findByText(/63.2% chance of a higher close tomorrow/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/beat that baseline by 6.2 points/)
     ).toBeInTheDocument();
 
     expect(

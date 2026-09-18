@@ -114,15 +114,24 @@ def train_and_predict(series):
     model.fit(X_train_scaled, y_train)
 
     test_accuracy = None
+    baseline_accuracy = None
     if X_test:
         X_test_scaled = scaler.transform(X_test)
         test_accuracy = round(model.score(X_test_scaled, y_test) * 100, 1)
+
+        # How well would "always guess the more common training outcome" do
+        # on the same held-out days? A model that can't beat this baseline
+        # isn't adding predictive value, however confident its output looks.
+        majority_class = 1 if sum(y_train) >= len(y_train) / 2 else 0
+        baseline_correct = sum(1 for actual in y_test if actual == majority_class)
+        baseline_accuracy = round(baseline_correct / len(y_test) * 100, 1)
 
     probability_up = round(float(model.predict_proba(latest_scaled)[0][1]) * 100, 1)
 
     return {
         "probability_up": probability_up,
         "test_accuracy": test_accuracy,
+        "baseline_accuracy": baseline_accuracy,
         "samples_trained": len(X_train),
         "samples_tested": len(X_test),
     }

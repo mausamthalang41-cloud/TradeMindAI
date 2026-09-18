@@ -5,6 +5,20 @@ type AiPredictionCardProps = {
   prediction: AiPrediction;
 };
 
+function baselineComparison(
+  testAccuracy: number,
+  baselineAccuracy: number
+): string {
+  const diff = Math.round((testAccuracy - baselineAccuracy) * 10) / 10;
+  if (diff > 0.5) {
+    return `beat that baseline by ${diff} points`;
+  }
+  if (diff < -0.5) {
+    return `trailed that baseline by ${Math.abs(diff)} points`;
+  }
+  return "landed about even with that baseline";
+}
+
 export default function AiPredictionCard({ prediction }: AiPredictionCardProps) {
   return (
     <div
@@ -42,6 +56,28 @@ export default function AiPredictionCard({ prediction }: AiPredictionCardProps) 
           : `Logistic regression trained on ${prediction.samples_trained} days of this symbol's own price history.`}{" "}
         Not financial advice - a coin flip beats this on a bad day.
       </p>
+
+      {prediction.test_accuracy !== null &&
+        prediction.baseline_accuracy !== null && (
+          <p
+            style={{
+              textAlign: "center",
+              color: "#94a3b8",
+              fontSize: "13px",
+              marginTop: "8px",
+              fontStyle: "italic",
+            }}
+          >
+            For comparison, always guessing this symbol&apos;s more common
+            direction (no model at all) would have scored{" "}
+            {prediction.baseline_accuracy}% on the same days — this model{" "}
+            {baselineComparison(
+              prediction.test_accuracy,
+              prediction.baseline_accuracy
+            )}
+            .
+          </p>
+        )}
     </div>
   );
 }

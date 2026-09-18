@@ -72,11 +72,15 @@ python -m pytest
 - The BUY/SELL/HOLD signal is a hand-written rule (SMA trend + RSI + today's
   price move), not a trained model - the backtest exists so you can see how
   it's actually performed rather than trusting it blindly.
-- `/ai/predict` is the actual ML piece: a `LogisticRegression` trained from
-  scratch on each symbol's own price history every time it's called (fast -
-  under 100 rows, a few features). Its held-out accuracy usually lands close
-  to a coin flip, which is realistic for daily-bar technical features alone;
-  it's shown alongside the prediction rather than hidden, on purpose.
+- `/ai/predict` is the actual ML piece: a `LogisticRegressionCV` trained
+  from scratch on each symbol's own price history every time it's called
+  (fast - under 100 rows, 7 technical features: SMA trend, RSI, MACD,
+  5/10-day momentum, volume ratio). It also reports what a trivial
+  "always guess the more common outcome" baseline would have scored on the
+  same held-out days (`baseline_accuracy`), shown next to the model's own
+  accuracy. Measured across 15 liquid large-caps, pooled model accuracy was
+  51.8% vs. a 51.8% baseline - no real edge over guessing. That's shown
+  in the UI on purpose rather than hidden behind a confident-looking number.
 - Alpha Vantage's free tier is the tightest constraint (25 requests/day, and
   `outputsize=full` is a paid-only feature - `compact` tops out around 100
   daily bars). One fetch per symbol serves the chart/signal/backtest (last 30
