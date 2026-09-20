@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import sqlite3
@@ -6,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
+import yfinance
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +18,6 @@ from indicators import calculate_rsi
 
 load_dotenv(Path(__file__).with_name(".env"))
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
 DB_PATH = Path(__file__).resolve().parent.parent / "database" / "trademind.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -291,9 +292,9 @@ async def get_stock_data(clean_symbol: str):
 
 
 _series_cache: dict[str, tuple[float, list]] = {}
-# Alpha Vantage's free tier caps out at 25 requests/day, and TIME_SERIES_DAILY
-# only changes once per trading day, so cache aggressively to make that quota
-# stretch across a full day of repeated searches instead of a single minute.
+# Daily bars only change once per trading day, so a long cache is free
+# correctness-wise - this just keeps repeated searches/backtests from
+# re-fetching and re-scraping Yahoo Finance on every request.
 _SERIES_CACHE_TTL_SECONDS = 12 * 60 * 60
 
 
@@ -324,45 +325,16 @@ def _save_series_cache(clean_symbol: str, fetched_at: float, series: list):
         )
 
 
-async def _fetch_alpha_vantage_daily(clean_symbol: str, outputsize: str, limit: int):
-    if not ALPHA_VANTAGE_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="Alpha Vantage API key is missing.",
-        )
-
-    url = "https://www.alphavantage.co/query"
-    parameters = {
-        "function": "TIME_SERIES_DAILY",
-        "symbol": clean_symbol,
-        "outputsize": outputsize,
-        "apikey": ALPHA_VANTAGE_API_KEY,
-    }
-
+def _fetch_yfinance_daily_sync(clean_symbol: str) -> list[dict]:
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(url, params=parameters)
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPError:
+        history = yfinance.Ticker(clean_symbol).history(period="2y", interval="1d")
+    except Exception as error:
         raise HTTPException(
             status_code=502,
-            detail="Could not contact the historical-data service.",
+            detail=f"Could not contact the historical-data service: {error}",
         )
 
-    if "Error Message" in data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No historical data found for {clean_symbol}.",
-        )
-
-    if "Note" in data or "Information" in data:
-        message = data.get("Note") or data.get("Information")
-        raise HTTPException(status_code=429, detail=message)
-
-    daily_prices = data.get("Time Series (Daily)")
-
-    if not daily_prices:
+    if history.empty:
         raise HTTPException(
             status_code=404,
             detail=f"No historical data found for {clean_symbol}.",
@@ -370,34 +342,33 @@ async def _fetch_alpha_vantage_daily(clean_symbol: str, outputsize: str, limit: 
 
     series = []
 
-    for date, values in list(daily_prices.items())[:limit]:
+    for timestamp, row in history.iterrows():
         series.append(
             {
-                "date": date,
-                "open": round(float(values["1. open"]), 2),
-                "high": round(float(values["2. high"]), 2),
-                "low": round(float(values["3. low"]), 2),
-                "close": round(float(values["4. close"]), 2),
-                "volume": int(values["5. volume"]),
+                "date": timestamp.strftime("%Y-%m-%d"),
+                "open": round(float(row["Open"]), 2),
+                "high": round(float(row["High"]), 2),
+                "low": round(float(row["Low"]), 2),
+                "close": round(float(row["Close"]), 2),
+                "volume": int(row["Volume"]),
             }
         )
 
-    series.reverse()
     return series
 
 
 # A cached series shorter than this was fetched by an older version of this
-# function that capped the request at 30 rows (before the AI predictor needed
-# up to 100) - treat those as stale so upgrading doesn't silently starve the
-# predictor of history for up to a full cache TTL.
-_MIN_USABLE_SERIES_LENGTH = 50
+# function that only kept ~100 days (before the switch to yfinance, which
+# gives ~2 years) - treat those as stale so upgrading doesn't silently leave
+# the AI predictor starved of history for up to a full cache TTL.
+_MIN_USABLE_SERIES_LENGTH = 200
 
 
 async def _fetch_and_cache_series(clean_symbol: str):
-    """The full ~100-day compact series Alpha Vantage's free tier allows
-    (outputsize=full is a premium-only feature), cached once per symbol so
-    the chart/signal/backtest (last 30 days) and the AI predictor (all ~100)
-    share a single fetch instead of burning quota twice.
+    """~2 years of daily bars from Yahoo Finance (via yfinance, no API key
+    or rate limit to manage), cached once per symbol so the chart/signal/
+    backtest (last 30 days) and the AI predictor (the full history) share a
+    single fetch instead of hitting Yahoo twice per request.
     """
     now = time.time()
 
@@ -418,7 +389,8 @@ async def _fetch_and_cache_series(clean_symbol: str):
         _series_cache[clean_symbol] = disk_cached
         return disk_cached[1]
 
-    series = await _fetch_alpha_vantage_daily(clean_symbol, "compact", 100)
+    # yfinance is a synchronous/blocking library - run it off the event loop.
+    series = await asyncio.to_thread(_fetch_yfinance_daily_sync, clean_symbol)
     _series_cache[clean_symbol] = (now, series)
     _save_series_cache(clean_symbol, now, series)
     return series
@@ -549,12 +521,15 @@ async def backtest_signal(symbol: str):
 
 @app.get("/ai/backtest/{symbol}")
 async def ai_backtest_signal(symbol: str):
-    """Day-by-day rule signal + AI prediction for the last ~30 days, each
-    one computed using only data available as of that day (the AI model is
-    retrained fresh at every step) - no lookahead. This is the raw material
-    for replaying a trading strategy's own decision logic against history;
-    the decision logic itself belongs to whatever's consuming this (e.g.
-    stock-bot's own strategy.py), not to TradeMindAI.
+    """Day-by-day rule signal + AI prediction for the last ~150 trading
+    days, each one computed using only data available as of that day (the
+    AI model is retrained fresh at every step, ~80ms each) - no lookahead.
+    This is the raw material for replaying a trading strategy's own
+    decision logic against history; the decision logic itself belongs to
+    whatever's consuming this (e.g. stock-bot's own strategy.py), not to
+    TradeMindAI. 150 days keeps this endpoint under ~15s while giving a
+    backtest sample large enough to actually trust (versus the ~30 days
+    the old ~100-day Alpha Vantage history allowed).
     """
     clean_symbol = symbol.strip().upper()
 
@@ -566,7 +541,7 @@ async def ai_backtest_signal(symbol: str):
     dates = [point["date"] for point in series]
     n = len(closes)
 
-    start = max(21, n - 30)
+    start = max(21, n - 150)
 
     if start >= n - 1:
         raise HTTPException(
