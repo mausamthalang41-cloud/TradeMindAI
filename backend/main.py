@@ -547,6 +547,63 @@ async def backtest_signal(symbol: str):
     return {"symbol": clean_symbol, **run_backtest(closes)}
 
 
+@app.get("/ai/backtest/{symbol}")
+async def ai_backtest_signal(symbol: str):
+    """Day-by-day rule signal + AI prediction for the last ~30 days, each
+    one computed using only data available as of that day (the AI model is
+    retrained fresh at every step) - no lookahead. This is the raw material
+    for replaying a trading strategy's own decision logic against history;
+    the decision logic itself belongs to whatever's consuming this (e.g.
+    stock-bot's own strategy.py), not to TradeMindAI.
+    """
+    clean_symbol = symbol.strip().upper()
+
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Enter a stock symbol.")
+
+    series = await fetch_training_series(clean_symbol)
+    closes = [point["close"] for point in series]
+    dates = [point["date"] for point in series]
+    n = len(closes)
+
+    start = max(21, n - 30)
+
+    if start >= n - 1:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Not enough historical data to backtest {clean_symbol}.",
+        )
+
+    days = []
+
+    for index in range(start, n - 1):
+        window_closes = closes[: index + 1]
+        day_change = (closes[index] - closes[index - 1]) / closes[index - 1] * 100
+        sma5 = round(sum(window_closes[-5:]) / 5, 2)
+        sma20 = round(sum(window_closes[-20:]) / 20, 2)
+        rsi = calculate_rsi(window_closes)
+        signal, _ = determine_signal(day_change, sma5, sma20, rsi)
+
+        probability_up = None
+        try:
+            result = train_and_predict(series[: index + 1])
+            probability_up = result["probability_up"]
+        except ValueError:
+            probability_up = None
+
+        days.append(
+            {
+                "date": dates[index],
+                "close": closes[index],
+                "next_close": closes[index + 1],
+                "signal": signal,
+                "probability_up": probability_up,
+            }
+        )
+
+    return {"symbol": clean_symbol, "days": days}
+
+
 @app.get("/history/{symbol}")
 async def stock_history(symbol: str):
     clean_symbol = symbol.strip().upper()
