@@ -527,7 +527,9 @@ async def ai_backtest_signal(symbol: str):
     This is the raw material for replaying a trading strategy's own
     decision logic against history; the decision logic itself belongs to
     whatever's consuming this (e.g. stock-bot's own strategy.py), not to
-    TradeMindAI. 150 days keeps this endpoint under ~15s while giving a
+    TradeMindAI. Includes each day's low (alongside close) so a consumer
+    can check a stop-loss against the realistic intraday low rather than
+    only the close. 150 days keeps this endpoint under ~15s while giving a
     backtest sample large enough to actually trust (versus the ~30 days
     the old ~100-day Alpha Vantage history allowed).
     """
@@ -538,6 +540,7 @@ async def ai_backtest_signal(symbol: str):
 
     series = await fetch_training_series(clean_symbol)
     closes = [point["close"] for point in series]
+    lows = [point["low"] for point in series]
     dates = [point["date"] for point in series]
     n = len(closes)
 
@@ -570,6 +573,7 @@ async def ai_backtest_signal(symbol: str):
             {
                 "date": dates[index],
                 "close": closes[index],
+                "low": lows[index],
                 "next_close": closes[index + 1],
                 "signal": signal,
                 "probability_up": probability_up,
